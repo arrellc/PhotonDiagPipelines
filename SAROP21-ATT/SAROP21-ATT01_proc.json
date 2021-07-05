@@ -1,0 +1,28 @@
+{
+    "bsread_address": "",
+    "bsread_channels": [
+        "SARES20-CAMS142-M5.processing_parameters",
+        "SARES20-CAMS142-M5.roi_signal_x_profile",
+        "SAR-CVME-TIFALL5:EvtSet"
+    ],
+    "prof_sig": "SARES20-CAMS142-M5.roi_signal_x_profile",
+    "events": "SAR-CVME-TIFALL5:EvtSet",
+    "function": "SAROP21-ATT01_proc.py",
+    "device": "SAROP21-ATT01",
+    "mode": "PUB",
+    "name": "SAROP21-ATT01_proc",
+    "no_client_timeout": 0,
+    "pipeline_type": "stream",
+    "reload": "True",
+    "calib": 1,
+    "step_length": 50,
+    "edge_type": "falling",
+    "refinement": 1,
+    "buffer_length": 5,
+    "dark_event": 25,
+    "fel_on_event": 13,
+    "use_dark": true,
+    "filter_window": 51,
+    "filter": true
+}
+
