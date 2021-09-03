@@ -2,17 +2,17 @@ import time
 from collections import defaultdict, deque
 from functools import partial
 from logging import getLogger
-from threading import RLock, Thread
+from threading import Thread
 
 import epics
 import numpy as np
 from cam_server.utils import create_thread_pvs
-from scipy.fftpack import fft
 
 _logger = getLogger(__name__)
 
-intensity_pv = None
 initialized = False
+
+dif_vals = defaultdict(int)
 
 # this is to avoid exceptions in the 'process' function upon appending to buffers if not all of
 # them were created in the 'initialize' function
@@ -20,56 +20,94 @@ buffers = defaultdict(partial(deque, maxlen=1))
 
 
 def initialize(params):
-    global intensity_pv, device, initialized
+    global initialized
 
     epics.ca.clear_cache()
-    [intensity_pv] = create_thread_pvs([params["intensity_pvname"]])
-    intensity_pv.wait_for_connection()
-    # If raising this exception then the pipeline won't start
-    if not intensity_pv.connected:
-        raise ("Cannot connect to " + params["intensity_pvname"])
 
-    for label in ("x_pos_all", "y_pos_all", "x_pos_odd", "y_pos_odd", "x_pos_even", "y_pos_even"):
-        out_x_pvname = params[f"fft_{label}_X_pvname"]
-        out_y_pvname = params[f"fft_{label}_Y_pvname"]
+    for label in ("xpos_all", "ypos_all", "xpos_odd", "ypos_odd", "xpos_evn", "ypos_evn"):
+        x_pvname = params[f"{label}_x_pvname"]
+        y_pvname = params[f"{label}_y_pvname"]
+        m_pvname = params[f"{label}_m_pvname"]
+        w_pvname = params[f"{label}_w_pvname"]
 
-        if out_x_pvname and out_y_pvname:
+        if x_pvname and y_pvname and m_pvname and w_pvname:
             buffer = deque(maxlen=params["queue_length"])
             buffers[label] = buffer
 
-            thread = Thread(target=calculate_fft, args=(buffer, out_x_pvname, out_y_pvname))
+            thread = Thread(target=update_PVs, args=(label, buffer, x_pvname, y_pvname, m_pvname, w_pvname))
             thread.start()
 
-    device, _ = params["up"].split(":", 1)
+    # diff PVs
+    xpos_dif_m_pvname = params["xpos_dif_m_pvname"]
+    xpos_dif_w_pvname = params["xpos_dif_w_pvname"]
+    ypos_dif_m_pvname = params["ypos_dif_m_pvname"]
+    ypos_dif_w_pvname = params["ypos_dif_w_pvname"]
+
+    thread = Thread(target=update_dif_PVs, args=(xpos_dif_m_pvname, xpos_dif_w_pvname, ypos_dif_m_pvname, ypos_dif_w_pvname))
+    thread.start()
 
     initialized = True
 
 
-# Processing the buffer every second and setting result to EPICS channel
-def calculate_fft(buffer, out_x_pvname, out_y_pvname):
-    _logger.info("Start buffer processing thread")
-    try:
-        out_x_pv, out_y_pv = create_thread_pvs([out_x_pvname, out_y_pvname])
+def update_PVs(label, buffer, x_pvname, y_pvname, m_pvname, w_pvname):
+    x_pv, y_pv, m_pv, w_pv = create_thread_pvs([x_pvname, y_pvname, m_pvname, w_pvname])
 
-        out_x_pv.wait_for_connection()
-        out_y_pv.wait_for_connection()
-        if not (out_x_pv.connected and out_y_pv.connected):
-            raise ("Cannot connect to fft PVs.")
+    x_pv.wait_for_connection()
+    y_pv.wait_for_connection()
+    m_pv.wait_for_connection()
+    w_pv.wait_for_connection()
+    if not (x_pv.connected and y_pv.connected and m_pv.connected and w_pv.connected):
+        raise (f"Cannot connect to {label} PVs.")
 
-        out_x_pv.put(np.arange(buffer.maxlen))
-        out_y_pv.put(np.zeros(buffer.maxlen))
+    x_pv.put(np.arange(buffer.maxlen))
+    y_pv.put(np.zeros(buffer.maxlen))
+    m_pv.put(0)
+    w_pv.put(0)
 
-        while True:
-            _buffer = buffer.copy()
-            if len(_buffer) == _buffer.maxlen:
-                out_y_pv.put(np.abs(fft(np.array(_buffer))))
+    while True:
+        time.sleep(3)
+        if len(buffer) != buffer.maxlen:
+            continue
 
-            time.sleep(10)
+        _buffer = np.array(buffer)
+        _buffer = _buffer[~np.isnan(_buffer)]
 
-    except Exception as e:
-        _logger.error("Error on buffer processing thread %s" % (str(e)))
-    finally:
-        _logger.info("Exit buffer processing thread")
+        # histogram
+        y_hist, x_hist = np.histogram(_buffer, bins=50)
+        x_hist = (x_hist[1:] + x_hist[:-1]) / 2
+
+        x_pv.put(x_hist)
+        y_pv.put(y_hist)
+
+        # stats
+        mean_val = np.mean(_buffer)
+        std_val = np.std(_buffer)
+
+        m_pv.put(mean_val)
+        w_pv.put(std_val)
+
+        dif_vals[f"{label}_m"] = mean_val
+        dif_vals[f"{label}_w"] = std_val
+
+
+def update_dif_PVs(xpos_dif_m_pvname, xpos_dif_w_pvname, ypos_dif_m_pvname, ypos_dif_w_pvname):
+    xpos_dif_m_pv, xpos_dif_w_pv, ypos_dif_m_pv, ypos_dif_w_pv = create_thread_pvs(
+        [xpos_dif_m_pvname, xpos_dif_w_pvname, ypos_dif_m_pvname, ypos_dif_w_pvname]
+    )
+
+    xpos_dif_m_pv.wait_for_connection()
+    xpos_dif_w_pv.wait_for_connection()
+    ypos_dif_m_pv.wait_for_connection()
+    ypos_dif_w_pv.wait_for_connection()
+    if not (xpos_dif_m_pv.connected and xpos_dif_w_pv.connected and ypos_dif_m_pv.connected and ypos_dif_w_pv.connected):
+        raise (f"Cannot connect to dif PVs.")
+
+    while True:
+        time.sleep(3)
+        xpos_dif_m_pv.put(dif_vals["xpos_odd_m"] - dif_vals["xpos_evn_m"])
+        xpos_dif_w_pv.put(dif_vals["xpos_odd_w"] - dif_vals["xpos_evn_w"])
+        ypos_dif_m_pv.put(dif_vals["ypos_odd_m"] - dif_vals["ypos_evn_m"])
+        ypos_dif_w_pv.put(dif_vals["ypos_odd_w"] - dif_vals["ypos_evn_w"])
 
 
 def process(data, pulse_id, timestamp, params):
@@ -88,35 +126,32 @@ def process(data, pulse_id, timestamp, params):
         intensity = down + up + left + right
         intensity_uJ = intensity * params["uJ_calib"]
     except:
-        intensity = float("nan")
-        intensity_uJ = float("nan")
+        intensity = np.nan
+        intensity_uJ = np.nan
 
     if intensity > params["threshold"]:
-        x_pos = ((right - left) / (right + left)) * params["horiz_calib"]
-        y_pos = ((up - down) / (up + down)) * params["vert_calib"]
+        xpos = ((right - left) / (right + left)) * params["horiz_calib"]
+        ypos = ((up - down) / (up + down)) * params["vert_calib"]
     else:
-        x_pos = float("nan")
-        y_pos = float("nan")
+        xpos = np.nan
+        ypos = np.nan
 
     # Update buffers
-    buffers["x_pos_all"].append(x_pos)
-    buffers["y_pos_all"].append(y_pos)
+    buffers["xpos_all"].append(xpos)
+    buffers["ypos_all"].append(ypos)
     if pulse_id % 2:
-        buffers["x_pos_odd"].append(x_pos)
-        buffers["y_pos_odd"].append(y_pos)
+        buffers["xpos_odd"].append(xpos)
+        buffers["ypos_odd"].append(ypos)
     else:
-        buffers["x_pos_even"].append(x_pos)
-        buffers["y_pos_even"].append(y_pos)
-
-    # Update intensity EPICS channel
-    intensity_pv.put(intensity)
+        buffers["xpos_evn"].append(xpos)
+        buffers["ypos_evn"].append(ypos)
 
     # Set bs outputs
     output = {}
-    output[f"{device}:intensity"] = intensity
-    output[f"{device}:intensity_uJ"] = intensity_uJ
-    output[f"{device}:x_pos"] = x_pos
-    output[f"{device}:y_pos"] = y_pos
+    device, _ = params["up"].split(":", 1)
+    output[f"{device}:INTENSITY"] = intensity
+    output[f"{device}:INTENSITY_UJ"] = intensity_uJ
+    output[f"{device}:XPOS"] = xpos
+    output[f"{device}:YPOS"] = ypos
 
     return output
-
