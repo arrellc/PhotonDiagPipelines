@@ -1,0 +1,19 @@
+{
+    "image_background_enable": true,
+    "image_background": "SARFE10-PSSS059:FPICTURE_12044327802_100",
+    "image_threshold": null,
+    "image_region_of_interest": null,
+    "image_good_region": null,
+    "image_slices": null,
+    "pipeline_type": "processing", 
+    "camera_name": "SARFE10-PSSS059",
+    "name": "SARFE10-PSSS059_psss",
+    "function": "psss.py",
+    "mode": "PUSH",
+    "no_client_timeout": 0,
+    "port": "8889",
+    "reload": true,
+    "processing_threads": 6,
+    "thread_buffer_size": 30,
+    "abort_on_error": false
+}
