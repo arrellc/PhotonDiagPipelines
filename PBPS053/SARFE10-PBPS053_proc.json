@@ -8,8 +8,8 @@
         "SARFE10-CVME-PHO6212:Lnk9Ch14-DATA-SUM",
         "SARFE10-CVME-PHO6212:Lnk9Ch15-DATA-SUM"
     ],
-    "mode": "PUSH",
-    "function": "SARFE10-PBPS053_proc.py",
+    "mode": "PUB",
+    "function": "pbps.py",
     "reload": true,
     "no_client_timeout": 0,
     "port": "9004",

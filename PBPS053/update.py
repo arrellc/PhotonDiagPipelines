@@ -13,11 +13,10 @@ with open("SARFE10-PBPS053_proc.json") as config_file:
 pc.save_pipeline_config(pipeline_name, config)
 
 # update process func
-filename = "SARFE10-PBPS053_proc.py"
+filename = "../functions/pbps.py"
 try:
     pc.set_function_script(instance_name, filename)
 except:
     pc.upload_user_script(filename)
 
 pc.stop_instance(instance_name)
-
