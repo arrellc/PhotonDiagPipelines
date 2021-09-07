@@ -73,7 +73,7 @@ def update_PVs(label, buffer, x_pvname, y_pvname, m_pvname, w_pvname):
         _buffer = _buffer[~np.isnan(_buffer)]
 
         # histogram
-        y_hist, x_hist = np.histogram(_buffer, bins=50)
+        y_hist, x_hist = np.histogram(_buffer, bins=101)
         x_hist = (x_hist[1:] + x_hist[:-1]) / 2
 
         x_pv.put(x_hist)
