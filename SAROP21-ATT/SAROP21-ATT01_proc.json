@@ -15,14 +15,13 @@
     "pipeline_type": "stream",
     "reload": "True",
     "calib": 1,
-    "step_length": 50,
-    "edge_type": "falling",
+    "step_length": 150,
+    "edge_type": "rising",
     "refinement": 1,
     "buffer_length": 5,
     "dark_event": 25,
     "fel_on_event": 13,
     "use_dark": true,
-    "filter_window": 51,
+    "filter_window": 201,
     "filter": true
 }
-

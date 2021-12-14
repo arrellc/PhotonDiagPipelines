@@ -9,7 +9,7 @@ initialized = False
 
 
 def initialize(params):
-    global initialized, buffer, device, step_length, edge_type, refinement, dark_event, fel_on_event, use_dark, calib, use_filter, filter_window
+    global initialized, buffer, device, step_length, edge_type, refinement, dark_event, fel_on_event, use_dark, calib, use_filter, filter_window, buffer_nosavgol
 
     device = params["device"]
     step_length = params["step_length"]
@@ -21,7 +21,8 @@ def initialize(params):
     use_dark = params["use_dark"]
     calib = params["calib"]
     filter_window = params["filter_window"]
-    use_filter = params['filter']
+    # use_filter = params['filter']
+    buffer_nosavgol = deque(maxlen=params["buffer_length"])
     initialized = True
 
 
@@ -58,7 +59,7 @@ def find_edge(data, step_length=50, edge_type="falling", refinement=1):
     xcorr_amplitude = np.amax(xcorr, axis=1)
 
     # correct edge_position for step_length
-    edge_position += np.floor(step_length / 2)
+    #edge_position += np.floor(step_length / 2)
 
     return {"edge_pos": edge_position, "xcorr": xcorr, "xcorr_ampl": xcorr_amplitude, "signal":data}
 
@@ -66,12 +67,15 @@ def find_edge(data, step_length=50, edge_type="falling", refinement=1):
 def process(data, pulse_id, timestamp, params):
     if not initialized:
         initialize(params)
+    output = {}
 
     # Read stream inputs
-    prof_sig = data[params["prof_sig"]]
-    if use_filter:
-        prof_sig  = savgol_filter(prof_sig,filter_window,3)
+    prof_sig_nosavgol = data[params["prof_sig"]]
+    prof_sig  = savgol_filter(prof_sig_nosavgol,filter_window,3)
     events = data[params["events"]]
+
+    if events[dark_event] and use_dark:
+        buffer_nosavgol.append(prof_sig_nosavgol)
 
     if prof_sig.ndim == 1:
         prof_sig = prof_sig[np.newaxis, :]
@@ -81,8 +85,8 @@ def process(data, pulse_id, timestamp, params):
         edge_results = {"edge_pos": np.nan, "xcorr": np.nan, "xcorr_ampl": np.nan, "signal":np.nan}
     else:
         if events[fel_on_event] and buffer:
-            prof_sig = prof_sig / np.mean(buffer, axis=0)
-            edge_results = find_edge(prof_sig, step_length, edge_type, refinement)
+            prof_sig_norm = prof_sig / np.mean(buffer, axis=0)
+            edge_results = find_edge(prof_sig_norm, step_length, edge_type, refinement)
         elif events[fel_on_event] and not use_dark:
             edge_results = find_edge(prof_sig, step_length, edge_type, refinement)
         else:
@@ -92,9 +96,27 @@ def process(data, pulse_id, timestamp, params):
     edge_results["arrival_time"] = edge_results["edge_pos"] * calib
 
     # Set bs outputs
-    output = {}
     for key, value in edge_results.items():
         output[f"{device}:{key}"] = value
 
-    return output
+    output[f"{device}:raw_wf_nosavgol"] = prof_sig_nosavgol
+    output[f"{device}:raw_wf"] = prof_sig
 
+    if events[dark_event]:
+        output[f"{device}:dark_wf_nosavgol"] = prof_sig_nosavgol
+        output[f"{device}:dark_wf"] = prof_sig
+    else:
+        output[f"{device}:dark_wf_nosavgol"] = np.nan
+        output[f"{device}:dark_wf"] = np.nan
+
+    if buffer_nosavgol:
+        output[f"{device}:avg_dark_wf_nosavgol"] = np.mean(buffer_nosavgol, axis=0)
+    else:
+        output[f"{device}:avg_dark_wf_nosavgol"] = np.nan
+
+    if buffer:
+        output[f"{device}:avg_dark_wf"] = np.mean(buffer, axis=0)
+    else:
+        output[f"{device}:avg_dark_wf"] = np.nan
+
+    return output
