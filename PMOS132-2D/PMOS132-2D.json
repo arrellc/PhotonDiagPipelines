@@ -1,0 +1,19 @@
+{
+  "image_background_enable" : false,
+  "image_background" : null,
+  "image_threshold" : null,
+  "image_region_of_interest" : null,
+  "image_good_region" : null,
+  "image_slices" : null,
+  "pipeline_type" : "processing",
+  "camera_name" : "SATOP31-PMOS132-2D",
+  "name" : "SATOP31-PMOS132-2D_pmos",
+  "function" : "pmos132-2D.py",
+  "mode" : "PUSH",
+  "no_client_timeout" : 0,
+  "reload" : true,
+  "processing_threads" : 6,
+  "thread_buffer_size" : 30,
+  "abort_on_error" : false,
+  "port" : "9001"
+}
