@@ -1,0 +1,18 @@
+{
+  "image_background_enable" : false,
+  "image_background" : null,
+  "image_threshold" : null,
+  "image_region_of_interest" : null,
+  "image_good_region" : null,
+  "image_slices" : null,
+  "pipeline_type" : "processing",
+  "function" : "psen_min_processing",
+  "camera_name" : "SARES11-SPEC125-M2",
+  "name" : "SARES11-SPEC125-M2_psen_db",
+  "mode" : "PUSH",
+  "roi_background" : [ 0, 2047, 50, 300 ],
+  "roi_signal" : [ 0, 2047, 550, 300 ],
+  "no_client_timeout" : 0,
+  "pixel_bkg":0,
+  "port" : "9011"
+}
