@@ -1,11 +1,11 @@
 {
     "image_background_enable": true,
-    "image_background": "SARFE10-PSSS059:FPICTURE_12044327802_100",
+    "image_background": "SARFE10-PSSS059_20211216_185801_521432",
     "image_threshold": null,
     "image_region_of_interest": null,
     "image_good_region": null,
     "image_slices": null,
-    "pipeline_type": "processing", 
+    "pipeline_type": "processing",
     "camera_name": "SARFE10-PSSS059",
     "name": "SARFE10-PSSS059_psss",
     "function": "psss.py",
@@ -15,5 +15,11 @@
     "reload": true,
     "processing_threads": 6,
     "thread_buffer_size": 30,
-    "abort_on_error": false
+    "abort_on_error": false,
+    "pixel_bkg": 1,
+    "queue_length": 100,
+    "avg_spectrum_x_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-X",
+    "avg_spectrum_y_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-Y",
+    "avg_spectrum_m_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-M",
+    "avg_spectrum_w_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-W"
 }

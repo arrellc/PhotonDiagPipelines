@@ -1,4 +1,7 @@
+import time
+from collections import deque
 from logging import getLogger
+from threading import Thread
 
 from cam_server.pipeline.data_processing import functions
 from cam_server.utils import create_thread_pvs, epics_lock
@@ -6,7 +9,7 @@ from cam_server.utils import create_thread_pvs, epics_lock
 
 import json
 
-import numpy
+import numpy as np
 import scipy.signal
 import scipy.optimize
 import numba
@@ -20,31 +23,62 @@ output_pv, center_pv, fwhm_pv, ymin_pv, ymax_pv, axis_pv = None, None, None, Non
 roi = [0, 0]
 initialized = False
 sent_pid = -1
+nrows = 1
+axis = None
+avg_spectrum = None
+avg_center = None
+avg_fwhm = None
 
-
-@numba.njit(parallel=True)
+@numba.njit(parallel=False)
 def get_spectrum(image, background):
     y = image.shape[0]
     x = image.shape[1]
 
-    profile = numpy.zeros(x, dtype=numpy.uint32)
+    profile = np.zeros(x, dtype=np.float64)
 
     for i in numba.prange(y):
         for j in range(x):
-            v = image[i, j]
-            b = background[i, j]
-            if v > b:
-                v -= b
-            else:
-                v = 0
-            profile[j] += v
+            profile[j] += image[i, j] - background[i, j]
     return profile
 
 
-def initialize(parameters):
+def update_avg_spectrum(x_pvname, y_pvname, m_pvname, w_pvname):
+    global avg_spectrum, avg_center, avg_fwhm
+    x_pv, y_pv, m_pv, w_pv = create_thread_pvs([x_pvname, y_pvname, m_pvname, w_pvname])
+    x_pv.wait_for_connection()
+    y_pv.wait_for_connection()
+    m_pv.wait_for_connection()
+    w_pv.wait_for_connection()
+    if not (x_pv.connected and y_pv.connected and m_pv.connected and w_pv.connected):
+        raise (f"Cannot connect to PVs.")
+
+    while True:
+        time.sleep(1)
+        if len(spectra_buffer) != spectra_buffer.maxlen:
+            continue
+
+        _buffer = np.array(spectra_buffer)
+        avg_spectrum = np.mean(_buffer, axis=0)
+        x_pv.put(axis)
+        y_pv.put(avg_spectrum)
+        minimum, maximum = avg_spectrum.min(), avg_spectrum.max()
+        amplitude = maximum - minimum
+        skip = True
+        if amplitude > nrows * 1.5:
+            skip = False
+        # gaussian fitting
+        offset, amplitude, center, sigma = functions.gauss_fit_psss(avg_spectrum[::2], axis[::2],
+            offset=minimum, amplitude=amplitude, skip=skip, maxfev=20)
+        avg_center = np.float64(center)
+        avg_fwhm = 2.355 * sigma
+        m_pv.put(avg_center)
+        w_pv.put(np.float64(avg_fwhm))
+
+
+def initialize(params):
     global ymin_pv, ymax_pv, axis_pv, output_pv, center_pv, fwhm_pv
-    global channel_names
-    epics_pv_name_prefix = parameters["camera_name"]
+    global channel_names, spectra_buffer
+    epics_pv_name_prefix = params["camera_name"]
     output_pv_name = epics_pv_name_prefix + ":SPECTRUM_Y"
     center_pv_name = epics_pv_name_prefix + ":SPECTRUM_CENTER"
     fwhm_pv_name = epics_pv_name_prefix + ":SPECTRUM_FWHM"
@@ -53,11 +87,15 @@ def initialize(parameters):
     axis_pv_name = epics_pv_name_prefix + ":SPECTRUM_X"
     channel_names = [output_pv_name, center_pv_name, fwhm_pv_name, ymin_pv_name, ymax_pv_name, axis_pv_name]
 
+    spectra_buffer = deque(maxlen=params["queue_length"])
+    thread = Thread(target=update_avg_spectrum, args=(params["avg_spectrum_x_pvname"], params["avg_spectrum_y_pvname"], params["avg_spectrum_m_pvname"], params["avg_spectrum_w_pvname"]))
+    thread.start()
+
 
 def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata=None, background=None):
-    global roi, initialized, sent_pid
+    global roi, initialized, sent_pid, nrows, axis
     global channel_names
-    
+
     if not initialized:
         initialize(parameters)
         initialized = True
@@ -85,12 +123,13 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     # match the energy axis to image width
     axis = axis[:image.shape[1]]
 
-    processing_image = image
+    processing_image = image.astype(np.float32) - np.float32(parameters["pixel_bkg"])
     nrows, ncols = processing_image.shape
 
     # validate background data if passive mode (background subtraction handled here)
     background_image = parameters.pop('background_data', None)
-    if isinstance(background_image, numpy.ndarray):
+    if isinstance(background_image, np.ndarray):
+        background_image = background_image.astype(np.float32)
         if background_image.shape != processing_image.shape:
             _logger.info("Invalid background shape: %s instead of %s" % (
             str(background_image.shape), str(processing_image.shape)))
@@ -113,7 +152,9 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     if background_image is not None:
         spectrum = get_spectrum(processing_image, background_image)
     else:
-        spectrum = processing_image.sum(0, 'uint32')
+        spectrum = np.sum(processing_image, axis=0)
+
+    spectra_buffer.append(spectrum)
 
     # smooth the spectrum with savgol filter with 51 window size and 3rd order polynomial
     smoothed_spectrum = scipy.signal.savgol_filter(spectrum, 51, 3)
@@ -129,27 +170,37 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     offset, amplitude, center, sigma = functions.gauss_fit_psss(smoothed_spectrum[::2], axis[::2],
             offset=minimum, amplitude=amplitude, skip=skip, maxfev=20)
 
+    smoothed_spectrum_normed = smoothed_spectrum / np.sum(smoothed_spectrum)
+    spectrum_com = np.sum(axis * smoothed_spectrum_normed)
+    spectrum_std = np.sqrt(np.sum((axis - spectrum_com) ** 2 * smoothed_spectrum_normed))
+
     # outputs
     processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"] = spectrum
     processed_data[epics_pv_name_prefix + ":SPECTRUM_X"] = axis
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"] = numpy.float64(center) 
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"] = numpy.float64(2.355 * sigma) 
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"] = np.float64(center)
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"] = np.float64(2.355 * sigma)
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_COM"] = spectrum_com
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_STD"] = spectrum_std
+
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_Y"] = avg_spectrum
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_CENTER"] = avg_center
+    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_FWHM"] = avg_fwhm
+
+
     if epics_lock.acquire(False):
-            try:
-                if pulse_id > sent_pid:
-                    sent_pid = pulse_id
-                    if output_pv and output_pv.connected:
-                        output_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"])
-                        #_logger.debug("caput on %s for pulse_id %s", output_pv, pulse_id)
+        try:
+            if pulse_id > sent_pid:
+                sent_pid = pulse_id
+                if output_pv and output_pv.connected:
+                    output_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"])
+                    #_logger.debug("caput on %s for pulse_id %s", output_pv, pulse_id)
 
-                    if center_pv and center_pv.connected:
-                        center_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"])
+                if center_pv and center_pv.connected:
+                    center_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"])
 
-                    if fwhm_pv and fwhm_pv.connected:
-                        fwhm_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"])
-            finally:
-                epics_lock.release()
+                if fwhm_pv and fwhm_pv.connected:
+                    fwhm_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"])
+        finally:
+            epics_lock.release()
 
     return processed_data
-
-
