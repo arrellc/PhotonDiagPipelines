@@ -13,6 +13,14 @@ import numpy as np
 import scipy.signal
 import scipy.optimize
 import numba
+from lmfit.models import GaussianModel
+
+model = GaussianModel(prefix="p1_") + GaussianModel(prefix="p2_") + GaussianModel(prefix="p3_")
+
+model.set_param_hint("p1_center", value=0, vary=False)
+model.set_param_hint("p2_center", value=0, vary=False)
+model.set_param_hint("p3_center", value=0, vary=False)
+params = model.make_params()
 
 numba.set_num_threads(4)
 
@@ -25,9 +33,8 @@ initialized = False
 sent_pid = -1
 nrows = 1
 axis = None
-avg_spectrum = None
-avg_center = None
-avg_fwhm = None
+avg_spectrum, avg_center, avg_fwhm = None, None, None
+peak_width, spectral_width, bkg_width = None, None, None
 
 @numba.njit(parallel=False)
 def get_spectrum(image, background):
@@ -75,9 +82,35 @@ def update_avg_spectrum(x_pvname, y_pvname, m_pvname, w_pvname):
         w_pv.put(np.float64(avg_fwhm))
 
 
+def update_autocorr(x_pvname, y_pvname):
+    global peak_width, spectral_width, bkg_width
+    x_pv, y_pv = create_thread_pvs([x_pvname, y_pvname])
+    x_pv.wait_for_connection()
+    y_pv.wait_for_connection()
+    if not (x_pv.connected and y_pv.connected):
+        raise (f"Cannot connect to PVs.")
+
+    while True:
+        time.sleep(1)
+        if len(autocorr_buffer) != autocorr_buffer.maxlen:
+            continue
+
+        _buffer = np.array(autocorr_buffer)
+        avg_autocorr = np.mean(_buffer, axis=0)
+        avg_autocorr /= np.max(avg_autocorr)
+        lags = axis - axis[int(axis.size / 2)]
+        x_pv.put(lags)
+        y_pv.put(avg_autocorr)
+
+        result = model.fit(avg_autocorr, params, x=lags)
+        peak_width = result.values['p1_sigma']
+        spectral_width = result.values['p2_sigma']
+        bkg_width = result.values['p3_sigma']
+
+
 def initialize(params):
     global ymin_pv, ymax_pv, axis_pv, output_pv, center_pv, fwhm_pv
-    global channel_names, spectra_buffer
+    global channel_names, spectra_buffer, autocorr_buffer
     epics_pv_name_prefix = params["camera_name"]
     output_pv_name = epics_pv_name_prefix + ":SPECTRUM_Y"
     center_pv_name = epics_pv_name_prefix + ":SPECTRUM_CENTER"
@@ -89,6 +122,10 @@ def initialize(params):
 
     spectra_buffer = deque(maxlen=params["queue_length"])
     thread = Thread(target=update_avg_spectrum, args=(params["avg_spectrum_x_pvname"], params["avg_spectrum_y_pvname"], params["avg_spectrum_m_pvname"], params["avg_spectrum_w_pvname"]))
+    thread.start()
+
+    autocorr_buffer = deque(maxlen=params["queue_length"])
+    thread = Thread(target=update_autocorr, args=(params["avg_autocorr_x_pvname"], params["avg_autocorr_y_pvname"]))
     thread.start()
 
 
@@ -168,11 +205,14 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
         skip = False
     # gaussian fitting
     offset, amplitude, center, sigma = functions.gauss_fit_psss(smoothed_spectrum[::2], axis[::2],
-            offset=minimum, amplitude=amplitude, skip=skip, maxfev=20)
+        offset=minimum, amplitude=amplitude, skip=skip, maxfev=20)
 
     smoothed_spectrum_normed = smoothed_spectrum / np.sum(smoothed_spectrum)
     spectrum_com = np.sum(axis * smoothed_spectrum_normed)
     spectrum_std = np.sqrt(np.sum((axis - spectrum_com) ** 2 * smoothed_spectrum_normed))
+
+    auto_corr = np.correlate(spectrum, spectrum, mode='same')
+    autocorr_buffer.append(auto_corr)
 
     # outputs
     processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"] = spectrum
@@ -186,6 +226,9 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_CENTER"] = avg_center
     processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_FWHM"] = avg_fwhm
 
+    processed_data[epics_pv_name_prefix + ":PEAK_WIDTH"] = peak_width
+    processed_data[epics_pv_name_prefix + ":SPECTRAL_WIDTH"] = spectral_width
+    processed_data[epics_pv_name_prefix + ":BKG_WIDTH"] = bkg_width
 
     if epics_lock.acquire(False):
         try:

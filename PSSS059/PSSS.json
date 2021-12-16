@@ -21,5 +21,7 @@
     "avg_spectrum_x_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-X",
     "avg_spectrum_y_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-Y",
     "avg_spectrum_m_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-M",
-    "avg_spectrum_w_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-W"
+    "avg_spectrum_w_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-W",
+    "avg_autocorr_x_pvname": "SAROP11-PBPS117:XPOS-ALL-HIST-X",
+    "avg_autocorr_y_pvname": "SAROP11-PBPS117:XPOS-ALL-HIST-Y"
 }
