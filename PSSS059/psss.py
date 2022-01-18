@@ -1,7 +1,4 @@
-import time
-from collections import deque
 from logging import getLogger
-from threading import Thread
 
 from cam_server.pipeline.data_processing import functions
 from cam_server.utils import create_thread_pvs, epics_lock
@@ -25,9 +22,6 @@ initialized = False
 sent_pid = -1
 nrows = 1
 axis = None
-avg_spectrum = None
-avg_center = None
-avg_fwhm = None
 
 @numba.njit(parallel=False)
 def get_spectrum(image, background):
@@ -42,39 +36,6 @@ def get_spectrum(image, background):
     return profile
 
 
-def update_avg_spectrum(x_pvname, y_pvname, m_pvname, w_pvname):
-    global avg_spectrum, avg_center, avg_fwhm
-    x_pv, y_pv, m_pv, w_pv = create_thread_pvs([x_pvname, y_pvname, m_pvname, w_pvname])
-    x_pv.wait_for_connection()
-    y_pv.wait_for_connection()
-    m_pv.wait_for_connection()
-    w_pv.wait_for_connection()
-    if not (x_pv.connected and y_pv.connected and m_pv.connected and w_pv.connected):
-        raise (f"Cannot connect to PVs.")
-
-    while True:
-        time.sleep(1)
-        if len(spectra_buffer) != spectra_buffer.maxlen:
-            continue
-
-        _buffer = np.array(spectra_buffer)
-        avg_spectrum = np.mean(_buffer, axis=0)
-        x_pv.put(axis)
-        y_pv.put(avg_spectrum)
-        minimum, maximum = avg_spectrum.min(), avg_spectrum.max()
-        amplitude = maximum - minimum
-        skip = True
-        if amplitude > nrows * 1.5:
-            skip = False
-        # gaussian fitting
-        offset, amplitude, center, sigma = functions.gauss_fit_psss(avg_spectrum[::2], axis[::2],
-            offset=minimum, amplitude=amplitude, skip=skip, maxfev=20)
-        avg_center = np.float64(center)
-        avg_fwhm = 2.355 * sigma
-        m_pv.put(avg_center)
-        w_pv.put(np.float64(avg_fwhm))
-
-
 def initialize(params):
     global ymin_pv, ymax_pv, axis_pv, output_pv, center_pv, fwhm_pv
     global channel_names, spectra_buffer
@@ -85,11 +46,9 @@ def initialize(params):
     ymin_pv_name = epics_pv_name_prefix + ":SPC_ROI_YMIN"
     ymax_pv_name = epics_pv_name_prefix + ":SPC_ROI_YMAX"
     axis_pv_name = epics_pv_name_prefix + ":SPECTRUM_X"
-    channel_names = [output_pv_name, center_pv_name, fwhm_pv_name, ymin_pv_name, ymax_pv_name, axis_pv_name]
-
-    spectra_buffer = deque(maxlen=params["queue_length"])
-    thread = Thread(target=update_avg_spectrum, args=(params["avg_spectrum_x_pvname"], params["avg_spectrum_y_pvname"], params["avg_spectrum_m_pvname"], params["avg_spectrum_w_pvname"]))
-    thread.start()
+    com_pv_name = epics_pv_name_prefix + ":COM"
+    std_pv_name = epics_pv_name_prefix + ":STD"
+    channel_names = [output_pv_name, center_pv_name, fwhm_pv_name, ymin_pv_name, ymax_pv_name, axis_pv_name, com_pv_name, std_pv_name]
 
 
 def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata=None, background=None):
@@ -99,7 +58,7 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     if not initialized:
         initialize(parameters)
         initialized = True
-    [output_pv, center_pv, fwhm_pv, ymin_pv, ymax_pv, axis_pv] = create_thread_pvs(channel_names)
+    [output_pv, center_pv, fwhm_pv, ymin_pv, ymax_pv, axis_pv, com_pv, std_pv] = create_thread_pvs(channel_names)
     processed_data = dict()
     epics_pv_name_prefix = parameters["camera_name"]
 
@@ -154,8 +113,6 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     else:
         spectrum = np.sum(processing_image, axis=0)
 
-    spectra_buffer.append(spectrum)
-
     # smooth the spectrum with savgol filter with 51 window size and 3rd order polynomial
     smoothed_spectrum = scipy.signal.savgol_filter(spectrum, 51, 3)
 
@@ -182,10 +139,6 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     processed_data[epics_pv_name_prefix + ":SPECTRUM_COM"] = spectrum_com
     processed_data[epics_pv_name_prefix + ":SPECTRUM_STD"] = spectrum_std
 
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_Y"] = avg_spectrum
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_CENTER"] = avg_center
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_AVG_FWHM"] = avg_fwhm
-
 
     if epics_lock.acquire(False):
         try:
@@ -200,6 +153,12 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
 
                 if fwhm_pv and fwhm_pv.connected:
                     fwhm_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"])
+
+                if com_pv and com_pv.connected:
+                    com_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_COM"])
+
+                if std_pv and std_pv.connected:
+                    std_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_STD"])
         finally:
             epics_lock.release()
 
