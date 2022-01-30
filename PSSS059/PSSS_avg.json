@@ -1,5 +1,6 @@
 {
     "pipeline_type": "stream",
+    "camera_name": "SARFE10-PSSS059",
     "name": "SARFE10-PSSS059_psss_avg",
     "bsread_address": "",
     "bsread_channels": [
@@ -17,9 +18,5 @@
     "thread_buffer_size": 30,
     "abort_on_error": false,
     "pixel_bkg": 1,
-    "queue_length": 100,
-    "avg_spectrum_x_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-X",
-    "avg_spectrum_y_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-Y",
-    "avg_spectrum_m_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-M",
-    "avg_spectrum_w_pvname": "SAROP11-PBPS117:XPOS-ODD-HIST-W"
+    "queue_length": 100
 }

@@ -4,7 +4,8 @@ from cam_server import PipelineClient
 pc = PipelineClient("http://sf-daqsync-01:8889")
 
 pipeline_name = "SATOP31-PMOS132-2D_pmos"
-instance_name = pipeline_name + "1"
+#instance_name = pipeline_name + "1"
+instance_name = pipeline_name
 
 # update config
 with open("PMOS132-2D.json") as config_file:

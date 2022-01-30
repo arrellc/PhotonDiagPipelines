@@ -39,15 +39,15 @@ def get_spectrum(image, background):
 def initialize(params):
     global ymin_pv, ymax_pv, axis_pv, output_pv, center_pv, fwhm_pv
     global channel_names, spectra_buffer
-    epics_pv_name_prefix = params["camera_name"]
-    output_pv_name = epics_pv_name_prefix + ":SPECTRUM_Y"
-    center_pv_name = epics_pv_name_prefix + ":SPECTRUM_CENTER"
-    fwhm_pv_name = epics_pv_name_prefix + ":SPECTRUM_FWHM"
-    ymin_pv_name = epics_pv_name_prefix + ":SPC_ROI_YMIN"
-    ymax_pv_name = epics_pv_name_prefix + ":SPC_ROI_YMAX"
-    axis_pv_name = epics_pv_name_prefix + ":SPECTRUM_X"
-    com_pv_name = epics_pv_name_prefix + ":COM"
-    std_pv_name = epics_pv_name_prefix + ":STD"
+    camera_name = params["camera_name"]
+    output_pv_name = camera_name + ":SPECTRUM_Y"
+    center_pv_name = camera_name + ":SPECTRUM_CENTER"
+    fwhm_pv_name = camera_name + ":SPECTRUM_FWHM"
+    ymin_pv_name = camera_name + ":SPC_ROI_YMIN"
+    ymax_pv_name = camera_name + ":SPC_ROI_YMAX"
+    axis_pv_name = camera_name + ":SPECTRUM_X"
+    com_pv_name = camera_name + ":SPECTRUM_COM"
+    std_pv_name = camera_name + ":SPECTRUM_STD"
     channel_names = [output_pv_name, center_pv_name, fwhm_pv_name, ymin_pv_name, ymax_pv_name, axis_pv_name, com_pv_name, std_pv_name]
 
 
@@ -60,7 +60,7 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
         initialized = True
     [output_pv, center_pv, fwhm_pv, ymin_pv, ymax_pv, axis_pv, com_pv, std_pv] = create_thread_pvs(channel_names)
     processed_data = dict()
-    epics_pv_name_prefix = parameters["camera_name"]
+    camera_name = parameters["camera_name"]
 
     if ymin_pv and ymin_pv.connected:
         roi[0] = ymin_pv.value
@@ -96,7 +96,7 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     else:
         background_image = None
 
-    processed_data[epics_pv_name_prefix + ":processing_parameters"] = json.dumps(
+    processed_data[camera_name + ":processing_parameters"] = json.dumps(
         {"roi": roi, "background": None if (background_image is None) else parameters.get('image_background')})
 
     # crop the image in y direction
@@ -132,12 +132,12 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
     spectrum_std = np.sqrt(np.sum((axis - spectrum_com) ** 2 * smoothed_spectrum_normed))
 
     # outputs
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"] = spectrum
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_X"] = axis
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"] = np.float64(center)
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"] = np.float64(2.355 * sigma)
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_COM"] = spectrum_com
-    processed_data[epics_pv_name_prefix + ":SPECTRUM_STD"] = spectrum_std
+    processed_data[camera_name + ":SPECTRUM_Y"] = spectrum
+    processed_data[camera_name + ":SPECTRUM_X"] = axis
+    processed_data[camera_name + ":SPECTRUM_CENTER"] = np.float64(center)
+    processed_data[camera_name + ":SPECTRUM_FWHM"] = np.float64(2.355 * sigma)
+    processed_data[camera_name + ":SPECTRUM_COM"] = spectrum_com
+    processed_data[camera_name + ":SPECTRUM_STD"] = spectrum_std
 
 
     if epics_lock.acquire(False):
@@ -145,20 +145,19 @@ def process_image(image, pulse_id, timestamp, x_axis, y_axis, parameters, bsdata
             if pulse_id > sent_pid:
                 sent_pid = pulse_id
                 if output_pv and output_pv.connected:
-                    output_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_Y"])
-                    #_logger.debug("caput on %s for pulse_id %s", output_pv, pulse_id)
+                    output_pv.put(processed_data[camera_name + ":SPECTRUM_Y"])
 
                 if center_pv and center_pv.connected:
-                    center_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_CENTER"])
+                    center_pv.put(processed_data[camera_name + ":SPECTRUM_CENTER"])
 
                 if fwhm_pv and fwhm_pv.connected:
-                    fwhm_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_FWHM"])
+                    fwhm_pv.put(processed_data[camera_name + ":SPECTRUM_FWHM"])
 
                 if com_pv and com_pv.connected:
-                    com_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_COM"])
+                    com_pv.put(processed_data[camera_name + ":SPECTRUM_COM"])
 
                 if std_pv and std_pv.connected:
-                    std_pv.put(processed_data[epics_pv_name_prefix + ":SPECTRUM_STD"])
+                    std_pv.put(processed_data[camera_name + ":SPECTRUM_STD"])
         finally:
             epics_lock.release()
 
