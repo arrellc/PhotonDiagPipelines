@@ -20,3 +20,5 @@ except:
     pc.upload_user_script(filename)
 
 pc.stop_instance(instance_name)
+pc.stop_instance(pipeline_name)
+

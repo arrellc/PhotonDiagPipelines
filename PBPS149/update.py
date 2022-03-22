@@ -3,11 +3,11 @@ import json
 from cam_server import PipelineClient
 pc = PipelineClient("http://sf-daqsync-01:8889")
 
-pipeline_name = "SAROP11-PBPS117_proc"
-instance_name = pipeline_name # + "1"
+pipeline_name = "SAROP31-PBPS149_proc"
+instance_name = pipeline_name + "1"
 
 # update config
-with open("/sf/photo/pipeline_cam_server/PBPS117/SAROP11-PBPS117_proc.json") as config_file:
+with open("/sf/photo/pipeline_cam_server/PBPS149/SAROP31-PBPS149.json") as config_file:
     config = json.load(config_file)
 
 pc.save_pipeline_config(pipeline_name, config)
@@ -19,4 +19,4 @@ try:
 except:
     pc.upload_user_script(filename)
 
-pc.stop_instance(instance_name)
+pc.stop_instance(pipeline_name)

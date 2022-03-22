@@ -9,7 +9,7 @@
     "events": "SAR-CVME-TIFALL5:EvtSet",
     "function": "SAROP21-ATT01_proc.py",
     "device": "SAROP21-ATT01",
-    "mode": "PUB",
+    "mode": "PUSH",
     "name": "SAROP21-ATT01_proc",
     "no_client_timeout": 0,
     "pipeline_type": "stream",

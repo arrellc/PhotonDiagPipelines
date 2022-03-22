@@ -1,6 +1,6 @@
 {
-  "image_background_enable" : false,
-  "image_background" : null,
+  "image_background_enable" : true,
+  "image_background" : "SATOP31-PMOS132-2D_20220119_165943_578699",
   "image_threshold" : null,
   "image_region_of_interest" : null,
   "image_good_region" : null,
@@ -15,5 +15,6 @@
   "processing_threads" : 6,
   "thread_buffer_size" : 30,
   "abort_on_error" : false,
+  "pixel_bkg" : 98,
   "port" : "9001"
 }

@@ -7,13 +7,13 @@ pipeline_name = "SARFE10-PBPS053_proc"
 instance_name = pipeline_name + "1"
 
 # update config
-with open("SARFE10-PBPS053_proc.json") as config_file:
+with open("/sf/photo/pipeline_cam_server/PBPS053/SARFE10-PBPS053_proc.json") as config_file:
     config = json.load(config_file)
 
 pc.save_pipeline_config(pipeline_name, config)
 
 # update process func
-filename = "../functions/pbps.py"
+filename = "/sf/photo/pipeline_cam_server/functions/pbps.py"
 try:
     pc.set_function_script(instance_name, filename)
 except:
