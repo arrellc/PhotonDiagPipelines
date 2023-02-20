@@ -73,6 +73,15 @@ def process(data, pulse_id, timestamp, params):
     prof_sig = data[params["prof_sig"]]
     try:
         prof_sig_savgol  = savgol_filter(prof_sig, filter_window, 3)
+        #Setup output for when there is no valid data to return
+        if prof_sig_savgol.ndim == 1:
+            prof_sig_savgol = prof_sig_savgol[np.newaxis, :]
+        edge_results_dummy = find_edge(prof_sig_savgol, step_length, edge_type, refinement)
+        edge_pos_dummy = np.empty(shape=edge_results_dummy['edge_pos'].shape)
+        xcorr_dummy = np.empty(shape=edge_results_dummy['xcorr'].shape)
+        xcorr_ampl_dummy = np.empty(shape=edge_results_dummy['xcorr_ampl'].shape)
+        signal_dummy = np.empty(shape=edge_results_dummy['signal'].shape)
+
     except: 
         output[f"{device}:raw_wf"] = prof_sig
         return output # added for intermitent cases with prof_sig shorter than filter window
@@ -85,7 +94,10 @@ def process(data, pulse_id, timestamp, params):
     
     if events[dark_event] and use_dark:
         buffer_savgol.append(prof_sig_savgol)
-        edge_results = {"edge_pos": np.nan, "xcorr": np.nan, "xcorr_ampl": np.nan, "signal":np.nan}
+        try:
+            edge_results = {"edge_pos": edge_pos_dummy, "xcorr": xcorr_dummy, "xcorr_ampl": xcorr_ampl_dummy, "signal":signal_dummy }
+        except:
+            edge_results = {"edge_pos": np.nan, "xcorr": np.nan, "xcorr_ampl": np.nan, "signal":np.nan}
     else:
         if events[fel_on_event] and buffer_savgol:
             prof_sig_norm = prof_sig_savgol / np.mean(buffer_savgol, axis=0)
@@ -93,7 +105,10 @@ def process(data, pulse_id, timestamp, params):
         elif events[fel_on_event] and not use_dark:
             edge_results = find_edge(prof_sig_savgol, step_length, edge_type, refinement)
         else:
-            edge_results = {"edge_pos": np.nan, "xcorr": np.nan, "xcorr_ampl": np.nan, "signal":np.nan}
+            try:
+                edge_results = {"edge_pos": edge_pos_dummy, "xcorr": xcorr_dummy, "xcorr_ampl": xcorr_ampl_dummy, "signal":signal_dummy }
+            except:
+                edge_results = {"edge_pos": np.nan, "xcorr": np.nan, "xcorr_ampl": np.nan, "signal":np.nan}
 
     # calib edge
     edge_results["arrival_time"] = np.polyval(calib,edge_results["edge_pos"])
@@ -112,6 +127,9 @@ def process(data, pulse_id, timestamp, params):
             edge_results["arrival_time_odd"] = np.nan
     # push pulse ID for debuging
     edge_results["pulse_id"] = pulse_id
+
+    #debug just return arrival tim
+#    output[f"{device}:arrival_time"] = edge_results["arrival_time"]
     # Set bs outputs
     for key, value in edge_results.items():
         output[f"{device}:{key}"] = value
@@ -123,8 +141,9 @@ def process(data, pulse_id, timestamp, params):
         output[f"{device}:dark_wf"] = prof_sig
         output[f"{device}:dark_wf_savgol"] = prof_sig_savgol
     else:
-        output[f"{device}:dark_wf"] = np.nan
-        output[f"{device}:dark_wf_savgol"] = np.nan
+        # Changed values below to from np.nan
+        output[f"{device}:dark_wf"] = prof_sig
+        output[f"{device}:dark_wf_savgol"] = prof_sig_savgol
 
     if buffer:
         output[f"{device}:avg_dark_wf"] = np.mean(buffer, axis=0)

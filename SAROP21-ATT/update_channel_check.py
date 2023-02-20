@@ -13,7 +13,7 @@ with open("SAROP21-ATT01_proc.json") as config_file:
 pc.save_pipeline_config(pipeline_name, config)
 
 # update process func
-filename = "SAROP21-ATT01_Debug_proc.py"
+filename = "SAROP21-ATT01_channel_check.py"
 try:
     pc.set_function_script(instance_name, filename)
 except:
